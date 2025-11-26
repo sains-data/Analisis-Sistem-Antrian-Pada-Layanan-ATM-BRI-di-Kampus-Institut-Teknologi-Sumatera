@@ -1,0 +1,122 @@
+---
+title: "Tubes Pemstok"
+author: "Irhamna Mahdi (122450049)"
+date: "2025-11-13"
+output: html_document
+---
+
+```{r}
+data <- data.frame(
+  Hari = rep(c("Senin", "Selasa", "Rabu", "Kamis", "Jumat"), each = 10),
+  Waktu = rep(c("0-15", "15-30", "30-45", "45-60", "60-75", "75-90", 
+                "90-105", "105-120", "120-135", "135-150"), 5),
+  Kedatangan = c(
+    # Senin
+    16, 7, 12, 15, 14, 12, 15, 17, 21, 13,
+    # Selasa
+    13, 9, 10, 6, 12, 9, 11, 11, 11, 12,
+    # Rabu
+    8, 13, 11, 4, 7, 9, 8, 9, 7, 10,
+    # Kamis
+    8, 15, 8, 9, 9, 13, 12, 15, 10, 13,
+    # Jumat
+    6, 10, 13, 12, 10, 6, 14, 13, 12, 11
+  ),
+  Pelayanan = c(
+    # Senin
+    12, 7, 7, 11, 10, 11, 8, 10, 11, 7,
+    # Selasa
+    9, 9, 9, 7, 12, 9, 10, 9, 12, 11,
+    # Rabu
+    7, 8, 11, 3, 7, 8, 8, 9, 7, 9,
+    # Kamis
+    8, 13, 6, 9, 9, 12, 10, 12, 10, 11,
+    # Jumat
+    4, 7, 10, 10, 9, 6, 10, 11, 10, 9
+  )
+)
+```
+
+```{r}
+library(dplyr)
+
+rekap <- data %>%
+  group_by(Hari) %>%
+  summarise(
+    total_kedatangan = sum(Kedatangan),
+    total_pelayanan = sum(Pelayanan)
+  ) %>%
+  mutate(
+    waktu_pengamatan_jam = 2.5,                 # 150 menit = 2.5 jam
+    lambda = total_kedatangan / waktu_pengamatan_jam,  # tingkat kedatangan (orang/jam)
+    mu = total_pelayanan / waktu_pengamatan_jam,        # tingkat pelayanan (orang/jam)
+    rho = lambda / mu,                                   # tingkat kegunaan sistem
+    Lq = (lambda^2) / (mu * (mu - lambda)),              # rata-rata nasabah dalam antrian
+    Ls = lambda / (mu - lambda),                         # rata-rata nasabah dalam sistem
+    Wq_jam = 1 /(mu - lambda),                                # waktu tunggu rata-rata (jam)
+    Ws_jam = lambda / (mu * (mu - lambda)),                   # waktu dalam sistem (jam)
+    Wq_menit = Wq_jam * 60,                              # konversi ke menit
+    Ws_menit = Ws_jam * 60,                              # konversi ke menit
+    P0 = 1 - rho,                                        # probabilitas server kosong
+    Pn_ge2 = 1 - (P0 + P0*rho + P0*(rho^2))              # probabilitas ≥2 pelanggan
+  )
+```
+
+```{r}
+cat("\n=== HASIL ANALISIS SISTEM ANTRIAN (Konversi ke Menit) ===\n")
+print(rekap[, c("Hari", "lambda", "mu", "rho", "Lq", "Ls", "Wq_menit", "Ws_menit", "P0", "Pn_ge2")])
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(rekap, aes(x = Hari, y = rho, fill = Hari)) +
+  geom_col() +
+  labs(title = "Tingkat Kegunaan Sistem (ρ) per Hari",
+       y = "ρ (Utilization)", x = "Hari") +
+  theme_minimal()
+```
+
+```{r}
+kedatangan_all <- data$Kedatangan
+lambda_est <- mean(kedatangan_all)
+
+freq_obs <- table(kedatangan_all)
+val <- as.numeric(names(freq_obs))
+freq_exp <- dpois(val, lambda_est) * length(kedatangan_all)
+
+chi_kedatangan <- chisq.test(x = freq_obs, p = dpois(val, lambda_est), rescale.p = TRUE)
+
+cat("\n=== Uji Distribusi Poisson untuk Kedatangan ===\n")
+cat("λ (rata-rata kedatangan):", lambda_est, "\n")
+print(chi_kedatangan)
+```
+
+```{r}
+ggplot(data.frame(x = val, obs = as.numeric(freq_obs), exp = freq_exp),
+       aes(x = x)) +
+  geom_col(aes(y = obs, fill = "Observed")) +
+  geom_line(aes(y = exp, color = "Expected"), linewidth = 1.2) +
+  labs(title = "Distribusi Kedatangan (Uji Poisson)",
+       x = "Jumlah Kedatangan per Interval", y = "Frekuensi") +
+  theme_minimal()
+```
+
+```{r}
+pelayanan_all <- data$Pelayanan
+rate_est <- 1 / mean(pelayanan_all)
+
+cat("\n=== Uji Distribusi Eksponensial untuk Pelayanan ===\n")
+ks_pelayanan <- ks.test(pelayanan_all, "pexp", rate = rate_est)
+print(ks_pelayanan)
+```
+
+```{r}
+ggplot(data.frame(x = pelayanan_all), aes(x)) +
+  geom_histogram(aes(y = ..density..), bins = 10, fill = "skyblue", color = "black") +
+  stat_function(fun = dexp, args = list(rate = rate_est), color = "red", linewidth = 1) +
+  labs(title = "Distribusi Pelayanan (Uji Eksponensial)",
+       x = "Jumlah Pelayanan per Interval", y = "Densitas") +
+  theme_minimal()
+```
+
